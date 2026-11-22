@@ -1,0 +1,4 @@
+dist/
+.claude/
+firmware/.pio/
+__pycache__/

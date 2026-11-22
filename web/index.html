@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#1f2a44">
+<title>Hoop Score</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ============ PLAYER MODE (what the child sees) ============ -->
+<div id="player">
+  <div id="fx"></div>
+  <div id="counter" hidden>0</div>
+  <div id="dot" aria-hidden="true"></div>
+  <div id="testBadge" hidden>Test mode: tap to score</div>
+</div>
+
+<!-- Invisible hold-3-seconds zone, top-right corner -->
+<div id="lockZone" aria-hidden="true">
+  <svg id="lockRing" viewBox="0 0 40 40"><circle cx="20" cy="20" r="16" /></svg>
+</div>
+
+<!-- ============ START SCREEN ============ -->
+<div id="start" class="screen">
+  <button id="startBle" class="pill" hidden>Connect micro:bit</button>
+  <button id="startBtn">Start</button>
+  <button id="startCare" class="link">Caregiver settings</button>
+  <p class="hint">During play, press and hold the top-right corner for 3 seconds to open settings.</p>
+</div>
+
+<!-- ============ PIN PAD ============ -->
+<div id="pinPad" class="screen" hidden>
+  <p class="hint">Enter caregiver PIN</p>
+  <div id="pinDots"><span></span><span></span><span></span><span></span></div>
+  <div id="pinKeys">
+    <button>1</button><button>2</button><button>3</button>
+    <button>4</button><button>5</button><button>6</button>
+    <button>7</button><button>8</button><button>9</button>
+    <button data-k="cancel">Cancel</button><button>0</button><button data-k="back">&#9003;</button>
+  </div>
+</div>
+
+<!-- ============ CAREGIVER MODE ============ -->
+<div id="care" class="sheet" hidden>
+  <header>
+    <h1>Caregiver settings</h1>
+    <button id="careClose" class="primary">Done</button>
+  </header>
+
+  <section>
+    <h2>Try it</h2>
+    <button id="testScore" class="primary wide">Test score</button>
+    <p class="note">Plays the chosen animation and sound once, exactly like a real basket. Does not change the score.</p>
+    <label class="check"><input type="checkbox" id="tapTest"> Tap-to-score test mode</label>
+    <p class="note">While this is on, every tap on the play screen counts as a basket (score goes up too). Great for trying things out without the hoop. It turns itself off when the page reloads, and a small "Test mode" label shows on screen while it's on.</p>
+  </section>
+
+  <section id="bleSec" hidden>
+    <h2>micro:bit hoop (Bluetooth)</h2>
+    <p id="bleState" class="msg" role="status"></p>
+    <div class="row-btns">
+      <button id="bleConnect" class="primary">Connect micro:bit</button>
+      <button id="bleDisconnect" hidden>Disconnect</button>
+    </div>
+    <p id="bleHelp" class="note"></p>
+  </section>
+
+  <section>
+    <h2>Animation</h2>
+    <div id="animList" class="list"></div>
+    <span class="field">Color</span>
+    <div id="animColors" class="swatches"></div>
+    <span class="field">Speed</span>
+    <div class="seg" id="speedSeg"><button data-v="slow">Slow</button><button data-v="medium">Medium</button></div>
+    <label class="field" for="duration">Duration <output id="durOut"></output></label>
+    <input type="range" id="duration" min="1" max="5" step="0.5">
+    <p class="note" id="rmNote" hidden>This phone is set to reduce motion, so every animation plays as a simple soft fade.</p>
+  </section>
+
+  <section>
+    <h2>Sound</h2>
+    <div id="soundList" class="list"></div>
+    <span class="field">Add your own sound</span>
+    <input id="newName" type="text" placeholder="Name (e.g. Mom says nice shot)" maxlength="40">
+    <div class="row-btns">
+      <label class="btn">Upload file<input type="file" id="upload" accept="audio/*,.mp3,.m4a,.wav,.aac" hidden></label>
+      <button id="recBtn">Record (5 s)</button>
+    </div>
+    <p class="note">Files: mp3, m4a or wav, up to 10 seconds and 2 MB. Uploaded sounds are leveled automatically so a loud file is not louder than the built-in sounds.</p>
+    <p class="note" id="recNote" hidden>Recording is blocked by the phone on the hoop's Wi-Fi page (it is not a secure https page). Instead, record a voice memo with the phone's recorder app, save it to Files, and use <b>Upload file</b>.</p>
+    <p class="msg" id="soundMsg" role="status"></p>
+
+    <label class="field" for="volume">Volume <output id="volOut"></output></label>
+    <input type="range" id="volume" min="0" max="100" step="1">
+    <label class="check"><input type="checkbox" id="fadeIn"> Soft start (fades in over 150 ms, no sharp beginning)</label>
+    <details>
+      <summary>Volume ceiling (set once)</summary>
+      <label class="field" for="maxVolume">Max volume <output id="maxOut"></output></label>
+      <input type="range" id="maxVolume" min="0" max="100" step="1">
+      <p class="note">The volume slider can never go above this, and profiles cannot change it.</p>
+    </details>
+    <p class="note">The phone's own volume buttons also affect loudness. On iPhone, also check the silent switch.</p>
+  </section>
+
+  <section>
+    <h2>Screen</h2>
+    <span class="field">Background color</span>
+    <div id="bgColors" class="swatches"></div>
+    <label class="check"><input type="checkbox" id="showCounter"> Show score counter</label>
+    <div class="row-btns"><span>Score: <b id="scoreNow">0</b></span><button id="resetScore">Reset score</button></div>
+    <label class="check" id="vibRow"><input type="checkbox" id="vibrate"> Gentle vibration on score</label>
+  </section>
+
+  <section>
+    <h2>Hoop sensor</h2>
+    <p id="calConn" class="note"></p>
+    <div class="cal">
+      <div>Distance <b id="calDist">–</b> cm</div>
+      <div>Baseline <b id="calBase">–</b> cm</div>
+    </div>
+    <div id="calBar"><div id="calFill"></div><div id="calLine"></div></div>
+    <p class="note">The bar is the live reading. When it drops past the line long enough, it counts as a basket.</p>
+    <p class="note">Last basket detected: <b id="lastScore">none yet</b></p>
+    <button id="recal">Recalibrate (keep the hoop clear for 2 s)</button>
+    <label class="field" for="dropCm">Drop distance <output id="dropOut"></output></label>
+    <input type="range" id="dropCm" min="5" max="60" step="1">
+    <label class="field" for="minHold">Hold time <output id="holdOut"></output></label>
+    <input type="range" id="minHold" min="20" max="200" step="10">
+    <label class="field" for="cooldown">Cooldown <output id="coolOut"></output></label>
+    <input type="range" id="cooldown" min="1000" max="6000" step="250">
+    <p class="note">Getting false sounds? Increase drop distance or hold time. Missing baskets? Lower them a little.</p>
+  </section>
+
+  <section>
+    <h2>Profiles</h2>
+    <div class="row-btns"><input id="profName" type="text" placeholder="e.g. Calm day" maxlength="30"><button id="profSave">Save current</button></div>
+    <div id="profList" class="list"></div>
+  </section>
+
+  <section>
+    <h2>Lock</h2>
+    <label class="check"><input type="checkbox" id="pinEnabled"> Require a 4-digit PIN to open settings</label>
+    <input id="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="4 digits">
+    <p class="note" id="pinNote"></p>
+  </section>
+
+  <div id="dlg" class="dlg" hidden>
+    <div class="dlg-box" role="dialog" aria-modal="true" aria-labelledby="dlgMsg">
+      <p id="dlgMsg"></p>
+      <input id="dlgInput" type="text" maxlength="40" hidden>
+      <div class="row-btns dlg-btns"><button id="dlgCancel">Cancel</button><button id="dlgOk" class="primary">OK</button></div>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

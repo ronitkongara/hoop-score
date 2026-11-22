@@ -1,0 +1,24 @@
+{
+    "name": "hoop-score-microbit",
+    "version": "0.1.0",
+    "description": "Sends basketball scores to the Hoop Score app over Bluetooth",
+    "dependencies": {
+        "core": "*",
+        "bluetooth": "*"
+    },
+    "files": [
+        "main.ts"
+    ],
+    "yotta": {
+        "config": {
+            "microbit-dal": {
+                "bluetooth": {
+                    "open": 1,
+                    "whitelist": 0,
+                    "security_level": null
+                }
+            }
+        }
+    },
+    "preferredEditor": "tsprj"
+}
