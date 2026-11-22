@@ -42,6 +42,8 @@ For demos there is also a **micro:bit + Bluetooth** version (no ESP32 needed). S
 
 A micro:bit **V2** is recommended. V1 also works but has less memory for Bluetooth.
 
+**Simpler alternative:** [`microbit/simple-hoop.ts`](microbit/simple-hoop.ts) is the original classroom sonar program (sonar extension, P1/P2, ball within 1–5 inches) switched from radio to Bluetooth. It only sends baskets; the phone's sensor settings panel stays blank with it. Add both the **sonar** and **bluetooth** extensions before pasting it.
+
 ### 2. Optional sensor
 Button A on the micro:bit counts as a basket, so the demo works without any sensor.
 To detect real baskets, use a **3.3 V** ultrasonic sensor (HC-SR04P, RCWL-1601, or a micro:bit sonar board; the classic HC-SR04 needs 5 V and won't work directly). You'll need an edge-connector breakout board:
