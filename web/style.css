@@ -186,4 +186,5 @@ summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
 .dlg-box input { max-width: none !important; }
 .dlg-btns { justify-content: flex-end; margin-bottom: 0; }
 .sheet button:focus-visible, .btn:focus-within, #startBtn:focus-visible { outline: 3px solid #7aa2d6; outline-offset: 2px; }
+#bleLog { margin: 6px 0 0; padding: 10px; background: #fff; border: 1px solid #dcd9d2; border-radius: 8px; font-size: .8rem; white-space: pre-wrap; overflow-wrap: anywhere; }
 #recBtn.rec { background: #9a3b2f; color: #fff; border-color: #9a3b2f; }

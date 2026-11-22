@@ -27,6 +27,7 @@
 <!-- ============ START SCREEN ============ -->
 <div id="start" class="screen">
   <button id="startBle" class="pill" hidden>Connect micro:bit</button>
+  <p id="startBleMsg" class="hint" hidden></p>
   <button id="startBtn">Start</button>
   <button id="startCare" class="link">Caregiver settings</button>
   <p class="hint">During play, press and hold the top-right corner for 3 seconds to open settings.</p>
@@ -67,6 +68,10 @@
       <button id="bleDisconnect" hidden>Disconnect</button>
     </div>
     <p id="bleHelp" class="note"></p>
+    <details id="bleLogWrap" hidden open>
+      <summary>Connection log</summary>
+      <pre id="bleLog"></pre>
+    </details>
   </section>
 
   <section>

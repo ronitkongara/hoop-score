@@ -701,33 +701,64 @@
   //   micro:bit -> app:  "S" score | "D,<distance>,<baseline>" status | "C,<dropCm>,<minHoldMs>,<cooldownMs>" config
   //   app -> micro:bit:  "R" recalibrate | "T,<dropCm>,<minHoldMs>,<cooldownMs>" thresholds | "W1"/"W0" status on/off
   const UART_SERVICE = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+  const UART_TX = '6e400002-b5a3-f393-e0a9-e50e24dcca9e'; // micro:bit -> app (indicate)
+  const UART_RX = '6e400003-b5a3-f393-e0a9-e50e24dcca9e'; // app -> micro:bit (write)
   const BLE = {
     device: null, inChar: null, outChar: null, connected: false, wanted: false,
-    buf: '', chain: Promise.resolve(), retryT: 0, error: '',
+    buf: '', chain: Promise.resolve(), retryT: 0, error: '', log: [], connectedAt: 0,
+    note(msg) { // short connection log shown in caregiver settings, for troubleshooting
+      const t = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      this.log.push(`${t}  ${msg}`); if (this.log.length > 8) this.log.shift();
+      renderBle();
+    },
     async pick() { // must be called from a tap (browser rule)
+      this.note('Opening the Bluetooth device list…');
       const device = await navigator.bluetooth.requestDevice({
         filters: [{ namePrefix: 'BBC micro:bit' }], optionalServices: [UART_SERVICE],
       });
+      this.note(`Picked ${device.name || 'a micro:bit'}.`);
       if (this.device !== device) {
         this.disconnect(true);
         this.device = device;
         device.addEventListener('gattserverdisconnected', () => this.onDrop());
       }
+      try { await this.open(); }
+      catch (e) {
+        // first connection failed: stop and say why (don't pretend we're "reconnecting")
+        this.wanted = false; clearTimeout(this.retryT);
+        try { if (device.gatt.connected) device.gatt.disconnect(); } catch (x) {}
+        throw e;
+      }
       this.wanted = true;
-      await this.open();
     },
     async open() {
-      const server = await this.device.gatt.connect();
-      const svc = await server.getPrimaryService(UART_SERVICE);
-      const chars = await svc.getCharacteristics();
-      // micro:bit names these from its own side, so pick them by what they can do
-      this.inChar = chars.find((c) => c.properties.notify || c.properties.indicate);
-      this.outChar = chars.find((c) => c.properties.write || c.properties.writeWithoutResponse);
-      if (!this.inChar) throw new Error('This micro:bit is not running the Hoop Score program.');
-      if (!this.onValue) this.onValue = (e) => this.onData(e.target.value);
-      this.inChar.addEventListener('characteristicvaluechanged', this.onValue);
-      await this.inChar.startNotifications();
-      this.buf = ''; this.error = ''; this.connected = true;
+      let step = 'connecting to the micro:bit';
+      try {
+        const server = await this.device.gatt.connect();
+        step = 'finding the UART service';
+        const svc = await server.getPrimaryService(UART_SERVICE);
+        step = 'finding the UART characteristics';
+        let tx, rx;
+        try { tx = await svc.getCharacteristic(UART_TX); rx = await svc.getCharacteristic(UART_RX); }
+        catch (e) { // fallback: pick them by what they can do
+          const chars = await svc.getCharacteristics();
+          tx = chars.find((c) => c.properties.notify || c.properties.indicate);
+          rx = chars.find((c) => c.properties.write || c.properties.writeWithoutResponse);
+        }
+        if (!tx) throw new Error('no notify characteristic');
+        this.inChar = tx; this.outChar = rx || null;
+        if (!this.onValue) this.onValue = (e) => this.onData(e.target.value);
+        this.inChar.addEventListener('characteristicvaluechanged', this.onValue);
+        step = 'starting notifications';
+        await this.inChar.startNotifications();
+      } catch (e) {
+        const msg = `Failed while ${step}: ${(e && e.message) || e}`;
+        this.note(msg);
+        const err = new Error(msg); err.step = step; err.name = (e && e.name) || 'Error';
+        throw err;
+      }
+      this.buf = ''; this.error = ''; this.connected = true; this.connectedAt = Date.now();
+      this.note('Connected. Waiting for baskets.');
       Conn.stop(); // stop Wi-Fi / demo hoop so only the micro:bit scores
       this.sendObj(Object.assign({ type: 'setThresholds' }, S.sensor));
       this.sendObj({ type: 'watch', on: careOpen });
@@ -744,7 +775,7 @@
     },
     handleLine(line) {
       const p = line.split(',');
-      if (p[0] === 'S') Conn.handleMsg({ type: 'score' });
+      if (p[0] === 'S') { this.note('Basket received.'); Conn.handleMsg({ type: 'score' }); }
       else if (p[0] === 'D') Conn.handleMsg({ type: 'status', distance: +p[1], baseline: +p[2] });
       else if (p[0] === 'C') Conn.handleMsg({ type: 'config', dropCm: +p[1], minHoldMs: +p[2], cooldownMs: +p[3] });
     },
@@ -759,14 +790,17 @@
         ? c.writeValueWithoutResponse(data) : c.writeValue(data))).catch(() => {});
     },
     onDrop() { // silent, like the Wi-Fi link: grey dot, then quietly reconnect
+      const was = this.connected;
       this.connected = false; this.inChar = this.outChar = null;
+      if (was) this.note(`Link dropped after ${Math.round((Date.now() - this.connectedAt) / 1000)} s.`);
       updateDot(); renderBle(); renderConn();
       clearTimeout(this.retryT);
       if (this.wanted) this.retryT = setTimeout(() => this.retry(), 2000);
     },
     async retry() {
       if (!this.wanted || this.connected || !this.device) return;
-      try { await this.open(); } catch (e) { this.retryT = setTimeout(() => this.retry(), 2000); }
+      this.note('Reconnecting…');
+      try { await this.open(); } catch (e) { this.error = e.message; this.retryT = setTimeout(() => this.retry(), 3000); }
     },
     disconnect(quiet) {
       this.wanted = false; clearTimeout(this.retryT);
@@ -782,8 +816,13 @@
     BLE.error = 'Looking for micro:bits…'; renderBle();
     try { await BLE.pick(); }
     catch (e) {
-      BLE.error = e && e.name === 'NotFoundError' ? 'No micro:bit picked.'
-        : `Couldn't connect (${(e && e.message) || e}). Check that the micro:bit is on, nearby, and running the Hoop Score program.`;
+      const msg = (e && e.message) || String(e);
+      if (e && e.name === 'NotFoundError' && !e.step) { BLE.error = 'No micro:bit picked.'; BLE.note('Device list closed without a pick.'); }
+      else if (e && e.step === 'finding the UART service') {
+        BLE.error = 'The micro:bit connected, but its Bluetooth UART service is missing or hidden. '
+          + 'Check that "bluetooth uart service" runs at start and "No Pairing Required" is on in Project Settings, re-download the program, '
+          + 'then on the iPhone forget the micro:bit under Settings > Bluetooth (if listed), turn Bluetooth off and on, and try again.';
+      } else BLE.error = `Couldn't connect. ${msg}`;
     }
     renderBle();
   }
@@ -792,7 +831,10 @@
     $('#bleConnect').hidden = !BLE_OK || BLE.connected;
     $('#bleDisconnect').hidden = !BLE.connected;
     $('#bleState').textContent = BLE.connected ? `Connected to ${(BLE.device && BLE.device.name) || 'micro:bit'}.`
-      : BLE.wanted ? 'Connection lost. Reconnecting to the micro:bit…' : (BLE.error || 'No micro:bit connected.');
+      : BLE.wanted ? 'Connection lost. Reconnecting to the micro:bit…' + (BLE.error ? ` (last try: ${BLE.error})` : '')
+        : (BLE.error || 'No micro:bit connected.');
+    $('#bleLog').textContent = BLE.log.join('\n');
+    $('#bleLogWrap').hidden = !BLE.log.length;
     $('#bleHelp').textContent = !navigator.bluetooth
       ? (IS_IOS ? 'iPhone and iPad browsers (Safari, Chrome) can\'t use Bluetooth. Open this page in the free Bluefy app instead.'
         : 'This browser can\'t use Bluetooth. Use Chrome or Edge.')
@@ -802,6 +844,9 @@
     sb.hidden = !BLE_OK;
     sb.textContent = BLE.connected ? 'micro:bit connected ✓' : BLE.wanted ? 'Reconnecting…' : 'Connect micro:bit';
     sb.classList.toggle('on', BLE.connected);
+    const sm = $('#startBleMsg');
+    sm.hidden = !BLE_OK || BLE.connected || !BLE.error;
+    sm.textContent = BLE.error ? BLE.error + ' (More detail: Caregiver settings > micro:bit hoop.)' : '';
   }
   $('#bleConnect').addEventListener('click', bleConnectTap);
   $('#startBle').addEventListener('click', () => { if (!BLE.connected) bleConnectTap(); });
