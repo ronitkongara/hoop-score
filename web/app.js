@@ -284,9 +284,37 @@
     },
   };
 
+  // One second of 8-bit silence as a WAV file (used to unlock iPhone audio, see below).
+  function silentWavUrl() {
+    const n = 8000, buf = new ArrayBuffer(44 + n), v = new DataView(buf);
+    const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+    w(0, 'RIFF'); v.setUint32(4, 36 + n, true); w(8, 'WAVE'); w(12, 'fmt ');
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, 8000, true); v.setUint32(28, 8000, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true);
+    w(36, 'data'); v.setUint32(40, n, true);
+    for (let i = 0; i < n; i++) v.setUint8(44 + i, 128); // 128 = silence for 8-bit audio
+    return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+  }
+
   const Sound = {
-    ctx: null, master: null, current: null, cache: new Map(),
+    ctx: null, master: null, current: null, cache: new Map(), keepAlive: null,
+    // iPhone: web sounds are muted by the ring/silent switch. A looping, inaudible <audio> element
+    // switches the page to "media playback" (like a video), so our sounds play even on silent.
+    // Must be started from a tap.
+    unlockSilentSwitch() {
+      if (!IS_IOS) return;
+      try {
+        if (!this.keepAlive) {
+          const a = document.createElement('audio');
+          a.src = silentWavUrl(); a.loop = true; a.preload = 'auto';
+          a.setAttribute('playsinline', ''); a.setAttribute('aria-hidden', 'true');
+          this.keepAlive = a;
+        }
+        if (this.keepAlive.paused) { const p = this.keepAlive.play(); if (p && p.catch) p.catch(() => {}); }
+      } catch (e) {}
+    },
     ensure() {
+      this.unlockSilentSwitch();
       if (!this.ctx) {
         const AC = window.AudioContext || window.webkitAudioContext;
         if (!AC) return null;
@@ -301,9 +329,17 @@
         // silent buffer: unlocks audio on iOS
         const s = ctx.createBufferSource(); s.buffer = ctx.createBuffer(1, 1, 22050); s.connect(ctx.destination); s.start(0);
         this.ctx = ctx; this.master = master;
+        ctx.onstatechange = () => renderAudioState();
       }
       if (this.ctx.state !== 'running') this.ctx.resume().catch(() => {});
       return this.ctx;
+    },
+    // Is sound actually able to play right now? Tries to wake it, waits at most 400 ms.
+    async ready() {
+      const ctx = this.ensure(); if (!ctx) return false;
+      if (ctx.state === 'running') return true;
+      try { await Promise.race([ctx.resume(), sleep(400)]); } catch (e) {}
+      return ctx.state === 'running';
     },
     // Perceptual taper. Always clamped by the caregiver's ceiling.
     level() { const v = Math.min(S.volume, S.maxVolume) / 100; return v * v; },
@@ -336,7 +372,9 @@
     /** Plays once. Resolves when finished (timer-based, so it never hangs). */
     async play(id) {
       if (!id || id === 'none') return;
-      const ctx = this.ensure(); if (!ctx) return;
+      // If the phone has paused audio, skip this sound rather than let it play late, as a surprise.
+      if (!(await this.ready())) { renderAudioState(); return; }
+      const ctx = this.ctx;
       let custom = null;
       if (!SYNTHS[id]) { custom = await this.loadCustom(id); if (!custom) return; }
       this.stopCurrent(); // never overlap
@@ -611,6 +649,15 @@
   }
   let wantPreview = null; // caregiver tapped Preview mid-animation: play it (latest only) right after
   function preview(what) { Sound.ensure(); if (busy) { wantPreview = what; return; } runEffect(what); }
+
+  function renderAudioState() {
+    const el = $('#audioState'); if (!el) return;
+    const st = Sound.ctx ? Sound.ctx.state : 'off';
+    el.textContent = st === 'running' ? 'Sound is on.'
+      : st === 'off' ? 'Sound turns on when you tap Start or any Preview button.'
+        : 'Sound is paused by the phone. Tap the screen once to turn it back on.';
+    el.classList.toggle('err', st !== 'running' && st !== 'off');
+  }
 
   function renderCounter() {
     const c = $('#counter'); c.hidden = !S.showCounter; c.textContent = String(S.score);
@@ -1157,6 +1204,7 @@
     $('#volume').value = S.volume; $('#volOut').textContent = S.volume + '%';
     $('#maxVolume').value = S.maxVolume; $('#maxOut').textContent = S.maxVolume + '%';
     $('#fadeIn').checked = S.fadeIn;
+    renderAudioState();
     $('#recBtn').hidden = !CAN_RECORD; $('#recNote').hidden = CAN_RECORD;
     $('#showCounter').checked = S.showCounter;
     $('#vibRow').hidden = !CAN_VIBRATE; $('#vibrate').checked = S.vibrate;
